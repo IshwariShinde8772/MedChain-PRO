@@ -63,67 +63,50 @@ export async function generateBillReceipt(patient: Patient, doctorName: string, 
 }
 
 export async function getMedicationSuggestions(diagnosis: string, history: string) {
-  const prompt = `As a clinical AI assistant for doctors, suggest 2-3 standard medications or protocols for diagnosis: "${diagnosis}". 
-  History context: ${history}. 
-  ASSISTIVE ONLY. Return only a JSON array of strings (e.g., ["Metformin 500mg BID", "Dietary review"]). 
-  Keep suggestions medically standard.`;
-  
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: { type: Type.STRING }
-        }
-      }
-    });
-    return JSON.parse(response.text || "[]");
-  } catch (e) {
-    return [];
-  }
-}
+  const prompt = `
+    DIAGNOSIS: "${diagnosis}"
+    PATIENT HISTORY: "${history}"
+    
+    As a clinical pharmacologist, provide a SYSTEMATIC medication protocol. 
+    Categorize suggestions into:
+    1. "First-line Treatment" (Standard of care)
+    2. "Alternative/Secondary" (If first-line is not tolerated)
+    3. "Supportive/Complication Management" (Addressing secondary symptoms of the diagnosis)
 
-export async function getInventoryForecast(inventory: InventoryItem[]) {
-  const context = inventory.map(i => `${i.name}: Stock ${i.stockLevel}, Threshold ${i.criticalThreshold}`).join("; ");
-  const prompt = `Based on hospital stock levels: ${context}. 
-  Predict days until depletion and recommend restock quantities. 
-  Return a JSON array of objects: { name: string, daysLeft: number, recommendation: string }. 
-  Focus on low-stock items.`;
+    STRICT RULE: Only suggest medications standard for "${diagnosis}". 
+    Example: If diagnosis is "Diabetes", provide Insulin, Metformin, etc. DO NOT provide random pain killers or antibiotics unless they are part of a diabetic foot infection protocol.
+  `;
   
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
+        systemInstruction: "You are a Senior Medical Officer. Provide highly systematic, evidence-based medication protocols categorized by clinical priority.",
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
           items: {
             type: Type.OBJECT,
             properties: {
-              name: { type: Type.STRING },
-              daysLeft: { type: Type.NUMBER },
-              recommendation: { type: Type.STRING }
-            }
+              name: { type: Type.STRING, description: "Generic name and standard starting dose" },
+              category: { type: Type.STRING, description: "First-line, Secondary, or Supportive" },
+              reason: { type: Type.STRING, description: "Systematic clinical justification" }
+            },
+            required: ["name", "category", "reason"]
           }
         }
       }
     });
     return JSON.parse(response.text || "[]");
   } catch (e) {
+    console.error("Clinical AI Error:", e);
     return [];
   }
 }
 
 export async function processVoiceCommand(command: string, context: string) {
-  const prompt = `Hospital Voice Assistant (Clinical Ward). Context: ${context}.
-  User Command: "${command}". 
-  Interpret the command. If data request, summarize accurately. If action request, describe the node update required.
-  Be extremely concise (max 15 words). Speak as a professional clinical AI.`;
-  
+  const prompt = `Hospital Voice Assistant. Context: ${context}. User Command: "${command}". Summarize accurately or describe update needed. 15 words max.`;
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
@@ -138,10 +121,10 @@ export async function processVoiceCommand(command: string, context: string) {
 export async function askAdminQuery(query: string, context: string) {
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Context: ${context}\n\nQuery: ${query}\n\nAlways use Indian Rupee (₹) for values.`,
+      model: 'gemini-3-pro-preview',
+      contents: `Context: ${context}\n\nQuery: ${query}`,
       config: {
-        systemInstruction: "You are an AI Hospital Operations Executive."
+        systemInstruction: "You are an AI Hospital Operations Executive. Provide systematic and data-driven answers."
       }
     });
     return response.text || "Unable to retrieve node intelligence.";
